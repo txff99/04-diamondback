@@ -1,5 +1,5 @@
 [package]
-name = "diamondback"
+name = "cobra"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.65"
@@ -9,6 +9,8 @@ rust-version = "1.65"
 [dependencies]
 im = "15.1.0"
 sexp = "1.1.4"
+regex = "1"
+rand = "0.8"
 
 [dev-dependencies]
 prettydiff = "0.6.4"
