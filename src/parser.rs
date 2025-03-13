@@ -1,4 +1,5 @@
 
+use im::HashMap;
 use regex::Regex;
 use sexp::Atom::*;
 use sexp::*;
@@ -10,9 +11,11 @@ pub enum Op1 { Add1, Sub1, IsNum, IsBool, IsOverflow}
 #[derive(Debug)]
 pub enum Op2 { Plus, Minus, Times, Equal, Greater, GreaterEqual, Less, LessEqual, }
 
+#[derive(Debug)]
 pub enum Defn {
-    Name(Vec<String>),
+    Func(String, Vec<String>, Box<Expr>),
 }
+
 
 #[derive(Debug)]
 pub enum Expr {
@@ -28,6 +31,7 @@ pub enum Expr {
     Break(Box<Expr>),
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
+    Call(String, Vec<Expr>)
 }
 
 fn parse_bind(bindings: &Vec<Sexp>) -> Vec<(String, Expr)> {
@@ -110,12 +114,49 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), Sexp::Atom(S(s)), e] if op == "set!" => Expr::Set(id_preprocess(s), Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), ..] if op == "block" => Expr::Block(parse_block(vec)),
+                [Sexp::Atom(S(op)), ..] if op == "fun" => Expr::Call(op.clone(), parse_block(vec)),
                 _ => panic!("Expr Invalid: Sexp"),
             }
         },
     }
 }
 
+fn parse_fun_args(s: &Sexp) -> Option<Vec<String>> {
+    match s {
+        Sexp::List(vec) => {
+            if vec.len() > 1 && vec[1..].iter().all(|s| matches!(s, Sexp::Atom(_))) {
+                Some(vec[1..].iter().map(|s| {
+                    if let Sexp::Atom(ref s) = s {
+                        id_preprocess(s.to_string().as_str())
+                    } else {
+                        unreachable!() 
+                    }
+                }).collect())
+            } else {
+                None
+            }
+        },
+        _ => panic!("Function Invalid: expr is not a list"),
+    }
+}
+
+fn parse_fun_name(s: &Sexp) -> Option<String> {
+    if let Sexp::List(vec) = s {
+        if let Some(Sexp::Atom(name)) = vec.first() {
+            return Some(name.to_string()); // Clone the string to return
+        }
+    }
+    None // Return None if the structure is invalid
+}
+
 pub fn parse_def(s: &Sexp) -> Defn {
-    todo!()
+    match s {
+        Sexp::List(vec) => {
+            match &vec[..] {
+                [Sexp::Atom(S(op)), e1, e2] if op == "fun" => Defn::Func(parse_fun_name(e1).unwrap(), parse_fun_args(e1).unwrap(), Box::new(parse_expr(e2))),
+                _ => panic!("Definition invalid")
+            }
+        },
+        _ => panic!("Definition Invalid")
+    }
 }

@@ -45,6 +45,14 @@ enum Instr {
     ISAR(Val, Val),
     ILABEL(Val),
     IJO(Val),
+    IReturn,
+    ICall(Val),
+}
+
+#[derive(Clone)]
+struct FuncArg {
+    addr: String,
+    args: Vec<String>,
 }
 
 fn generate_label(prefix: &str) -> String {
@@ -57,8 +65,42 @@ fn generate_label(prefix: &str) -> String {
     format!("{}_{}", prefix, random_suffix)
 }
 
+fn compile_defns(defns: &Vec<Defn>, defn_map: &mut HashMap<String, FuncArg>) -> Vec<Instr> {
+    let mut instrs = Vec::new();
+    // get func map first because there could be mutual recursion calls
+    for defn in defns {
+        // defn::func(vec<string>, expr)
+        match defn {
+            Defn::Func(name, args, _) => {
+                let name = args.first().unwrap();
+                assert!(!defn_map.contains_key(name), "Multiple functions are defined with the same name");
+                defn_map.insert(name.to_string(), FuncArg{ addr: generate_label(name), args: args.clone()});
+            },
+        }
+    }
+    for defn in defns {
+        match defn {
+            Defn::Func(name, args, expr) => {
+                instrs.push(Instr::ILABEL(Val::Label(name.clone())));
+                // build a var map for func args
+                let mut var_to_regoffset: HashMap<String, i64> = HashMap::new();
+                instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
+                instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
+                instrs.push(Instr::ISub(Val::Reg(Reg::RSP), Val::Imm((args.len() as i64)*8)));
+                for (i, id) in args.iter().enumerate() {
+                    let index = i as i64;
+                    assert!(!var_to_regoffset.contains_key(id), "A function's parameter list has a duplicate name");
+                    var_to_regoffset.insert(id.to_string(), index+1);
+                }
+                instrs.extend(compile_to_instrs(expr, &var_to_regoffset, "", defn_map));
+                instrs.push(Instr::IReturn);
+            },
+        }
+    }
+    instrs
+}
 
-fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -> Vec<Instr> {
+fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, defn_map: &HashMap<String, FuncArg>) -> Vec<Instr> {
     match e {
         Expr::Number(n) => {
             if *n < -4611686018427387904 || *n > 4611686018427387903 {
@@ -80,18 +122,18 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
         Expr::UnOp(op1, subexpr) => {
             match op1 {
                 Op1::Add1 => {
-                  let mut instrs = compile_to_instrs(subexpr, var_map, loop_end);
+                  let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                   instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(0b10)));
                   instrs
                 },
                 Op1::Sub1 => {
-                  let mut instrs = compile_to_instrs(subexpr, var_map, loop_end);
+                  let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                   instrs.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Imm(0b10)));
                   instrs
                 },
                 /* for typecheck we use the least significant bit for tag: 0 for number, 1 for bool */
                 Op1::IsBool => {
-                  let mut instrs = compile_to_instrs(subexpr, var_map, loop_end);
+                  let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                   instrs.push(Instr::IMov(Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)));
                   instrs.push(Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(0x1)));
                   instrs.push(Instr::ICMP(Val::Reg(Reg::RCX), Val::Imm(0x1)));
@@ -99,7 +141,7 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
                   instrs
                 },
                 Op1::IsNum => {
-                  let mut instrs = compile_to_instrs(subexpr, var_map, loop_end);
+                  let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                   instrs.push(Instr::IMov(Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)));
                   instrs.push(Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(0x1)));
                   instrs.push(Instr::ICMP(Val::Reg(Reg::RCX), Val::Imm(0x1)));
@@ -107,7 +149,7 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
                   instrs
                 },
                 Op1::IsOverflow => {
-                    let mut instrs = compile_to_instrs(subexpr, var_map, loop_end);
+                    let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                     // instrs.push(Instr::IJC(Val::Label("overflow_handler".to_string())));
                     instrs.push(Instr::IJO(Val::Label("overflow_handler".to_string())));
                     instrs
@@ -117,25 +159,25 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
         Expr::BinOp(op2, e1, e2) => {
             match op2 {
                 Op2::Plus => {
-                    let mut instrs = compile_to_instrs(e2, var_map, loop_end);
+                    let mut instrs = compile_to_instrs(e2, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
-                    instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+                    instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
                     instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
                     instrs
                 },
                 Op2::Minus => {
-                    let mut instrs = compile_to_instrs(e2, var_map, loop_end);
+                    let mut instrs = compile_to_instrs(e2, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
-                    instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+                    instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
                     instrs.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
                     instrs
                 },
                 Op2::Times => {
-                  let mut instrs = compile_to_instrs(e2, var_map, loop_end);
+                  let mut instrs = compile_to_instrs(e2, var_map, loop_end, defn_map);
                   instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
-                  instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+                  instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
                   instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
                   instrs.push(Instr::IMul(Val::Reg(Reg::RCX)));
                   /* check num bound */
@@ -146,9 +188,9 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
                   instrs
                 },
                 Op2::Equal => {
-                    let mut instrs = compile_to_instrs(e2, var_map, loop_end);
+                    let mut instrs = compile_to_instrs(e2, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
-                    instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+                    instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
                     
                     /* check if type matches each other */
@@ -167,9 +209,9 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
                     instrs
                 }
                 Op2::Less => {
-                    let mut instrs = compile_to_instrs(e2, var_map, loop_end);
+                    let mut instrs = compile_to_instrs(e2, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
-                    instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+                    instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
@@ -179,9 +221,9 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
                     instrs
                 },
                 Op2::LessEqual => {
-                    let mut instrs = compile_to_instrs(e2, var_map, loop_end);
+                    let mut instrs = compile_to_instrs(e2, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
-                    instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+                    instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
@@ -191,9 +233,9 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
                     instrs
                 },
                 Op2::Greater => {
-                    let mut instrs = compile_to_instrs(e2, var_map, loop_end);
+                    let mut instrs = compile_to_instrs(e2, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
-                    instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+                    instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
@@ -203,9 +245,9 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
                     instrs
                 },
                 Op2::GreaterEqual => {
-                    let mut instrs = compile_to_instrs(e2, var_map, loop_end);
+                    let mut instrs = compile_to_instrs(e2, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
-                    instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+                    instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
@@ -226,26 +268,26 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
                 let index = i as i64;
                 let (id, expr) = tp;
                 assert!(!var_to_regoffset.contains_key(id), "Duplicate binding");
-                instrs.extend(compile_to_instrs(expr, &var_to_regoffset, loop_end));
+                instrs.extend(compile_to_instrs(expr, &var_to_regoffset, loop_end, defn_map));
                 instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, (index+1)*8), Val::Reg(Reg::RAX)));
                 var_to_regoffset.insert(id.to_string(), index+1);
             }
-            instrs.extend(compile_to_instrs(subexpr, &var_to_regoffset, loop_end));
+            instrs.extend(compile_to_instrs(subexpr, &var_to_regoffset, loop_end, defn_map));
             instrs.push(Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::RBP)));
             instrs.push(Instr::IPop(Val::Reg(Reg::RBP)));
             instrs
         },
         Expr::If(e1, e2, e3) => {
             let mut instrs = Vec::new();
-            instrs.extend(compile_to_instrs(e1, var_map, loop_end));
+            instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
             instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Imm(0b11)));
             let else_label = generate_label("else");
             let end_label = generate_label("end");
             instrs.push(Instr::IJNE(Val::Label(else_label.clone())));
-            instrs.extend(compile_to_instrs(e2, var_map, loop_end));
+            instrs.extend(compile_to_instrs(e2, var_map, loop_end, defn_map));
             instrs.push(Instr::IJMP(Val::Label(end_label.clone())));
             instrs.push(Instr::ILABEL(Val::Label(else_label.clone())));
-            instrs.extend(compile_to_instrs(e3, var_map, loop_end));
+            instrs.extend(compile_to_instrs(e3, var_map, loop_end, defn_map));
             instrs.push(Instr::IJMP(Val::Label(end_label.clone())));
             instrs.push(Instr::ILABEL(Val::Label(end_label.clone())));
             instrs
@@ -255,29 +297,45 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str) -
             let loop_end = generate_label("loop_end");
             let mut instrs = Vec::new();
             instrs.push(Instr::ILABEL(Val::Label(loop_start.clone())));
-            instrs.extend(compile_to_instrs(e, var_map, &loop_end));
+            instrs.extend(compile_to_instrs(e, var_map, &loop_end, defn_map));
             instrs.push(Instr::IJMP(Val::Label(loop_start.clone())));
             instrs.push(Instr::ILABEL(Val::Label(loop_end.clone())));
             instrs
         },
         Expr::Break(e) => {
             assert!(loop_end!="", "break outside of loop");
-            let mut instrs = compile_to_instrs(e, var_map, loop_end);
+            let mut instrs = compile_to_instrs(e, var_map, loop_end, defn_map);
             instrs.push(Instr::IJMP(Val::Label(loop_end.to_string())));
             instrs
         }
         Expr::Block(exprs) => {
             let mut instrs = Vec::new();
             for e in exprs {
-                instrs.extend(compile_to_instrs(e, var_map, loop_end));
+                instrs.extend(compile_to_instrs(e, var_map, loop_end, defn_map));
             }
             instrs
         }
         Expr::Set(id, e) => {
             /* todo combine this with Expr::ID instead of String */
             assert!(var_map.contains_key(id), "Unbound variable identifier: {}", id);
-            let mut instrs = compile_to_instrs(e, var_map, loop_end);
+            let mut instrs = compile_to_instrs(e, var_map, loop_end, defn_map);
             instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, var_map[id]*8), Val::Reg(Reg::RAX)));
+            instrs
+        },
+        Expr::Call(name, args) => {
+            assert!(defn_map.contains_key(name), "There is a call to a function name that doesn't exist");
+            assert!(args.len()==defn_map[name].args.len(), "There is a call to a function with the wrong number of arguments");
+            // assign args to stack and call 
+            let mut instrs = Vec::new();
+            instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
+            instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
+            instrs.push(Instr::ISub(Val::Reg(Reg::RSP), Val::Imm((args.len() as i64)*8)));
+            for (i, expr) in args.iter().enumerate() {
+                let index = i as i64;
+                instrs.extend(compile_to_instrs(expr, var_map, loop_end, defn_map));
+                instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, (index+1)*8), Val::Reg(Reg::RAX)));
+            }
+            instrs.push(Instr::ICall(Val::Label(defn_map[name].addr.clone())));
             instrs
         }
     }
@@ -305,6 +363,8 @@ fn instr_to_str(i: &Instr) -> String {
         Instr::ISETG(_) => format!("\nsetg al\nmovzx rax, al"),
         Instr::ISETGE(_) => format!("\nsetge al\nmovzx rax, al"),
         Instr::IJO(dst) => format!("\njo {}", val_to_str(dst)),
+        Instr::IReturn => format!("\nret"),
+        Instr::ICall(dst) => format!("\ncall {}", val_to_str(dst)),
     }
 }
 
@@ -325,9 +385,16 @@ fn val_to_str(v: &Val) -> String {
 }
 
 pub fn compile(e: &Expr, defs: &Vec<Defn>) -> String {
-    let instrs = compile_to_instrs(e, &HashMap::new(), "");
+    // defn map -> name, args for each func & jumping address for funcs -> pass to main program
+    // combine the str of defn and the main program
+    let mut defn_map = HashMap::new();
+    let defn_instrs = compile_defns(defs, &mut defn_map);
+    let instrs = compile_to_instrs(e, &HashMap::new(), "", &defn_map);
     let mut ret = String::new();
     for instr in instrs {
+        ret += &instr_to_str(&instr);
+    }
+    for instr in defn_instrs {
         ret += &instr_to_str(&instr);
     }
     ret
