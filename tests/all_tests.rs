@@ -28,6 +28,6 @@ static_error_tests! {
     {
         name: duplicate_params,
         file: "duplicate_params.snek",
-        expected: "",
+        expected: "A function's parameter list has a duplicate name",
     }
 }

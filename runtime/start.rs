@@ -26,7 +26,7 @@ fn parse_input(input: &str) -> i64 {
         "true" => 0b11,
         "false" => 0b01,
         _ => { 
-            let ret: i64 = input.parse().expect("input argument can't parse to i64");
+            let ret: i64 = input.parse().expect("input argument can't be parsed to i64 nor is a bool");
             if ret < -4611686018427387904 || ret > 4611686018427387903 {
                 panic!("an error ocurred: overflow");
             }

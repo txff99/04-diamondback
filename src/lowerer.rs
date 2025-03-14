@@ -50,6 +50,7 @@ enum Instr {
 }
 
 #[derive(Clone)]
+#[derive(Debug)]
 struct FuncArg {
     addr: String,
     args: Vec<String>,
@@ -72,7 +73,6 @@ fn compile_defns(defns: &Vec<Defn>, defn_map: &mut HashMap<String, FuncArg>) -> 
         // defn::func(vec<string>, expr)
         match defn {
             Defn::Func(name, args, _) => {
-                let name = args.first().unwrap();
                 assert!(!defn_map.contains_key(name), "Multiple functions are defined with the same name");
                 defn_map.insert(name.to_string(), FuncArg{ addr: generate_label(name), args: args.clone()});
             },
@@ -81,18 +81,17 @@ fn compile_defns(defns: &Vec<Defn>, defn_map: &mut HashMap<String, FuncArg>) -> 
     for defn in defns {
         match defn {
             Defn::Func(name, args, expr) => {
-                instrs.push(Instr::ILABEL(Val::Label(name.clone())));
+                instrs.push(Instr::ILABEL(Val::Label(defn_map[name].addr.clone())));
                 // build a var map for func args
                 let mut var_to_regoffset: HashMap<String, i64> = HashMap::new();
-                instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
-                instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
-                instrs.push(Instr::ISub(Val::Reg(Reg::RSP), Val::Imm((args.len() as i64)*8)));
                 for (i, id) in args.iter().enumerate() {
                     let index = i as i64;
                     assert!(!var_to_regoffset.contains_key(id), "A function's parameter list has a duplicate name");
                     var_to_regoffset.insert(id.to_string(), index+1);
                 }
                 instrs.extend(compile_to_instrs(expr, &var_to_regoffset, "", defn_map));
+                instrs.push(Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::RBP)));
+                instrs.push(Instr::IPop(Val::Reg(Reg::RBP)));
                 instrs.push(Instr::IReturn);
             },
         }
@@ -261,10 +260,14 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
         Expr::Let(vec, subexpr) => {
             let mut var_to_regoffset: HashMap<String, i64> = HashMap::new();
             let mut instrs = Vec::new();
+            /* mark the rbp in another register and copy values to new offset 
+            add unique ids to the new var map */
+            instrs.push(Instr::IMov(Val::Reg(Reg::RDX), Val::Reg(Reg::RBP)));
+
             instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
             instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
             instrs.push(Instr::ISub(Val::Reg(Reg::RSP), Val::Imm((vec.len() as i64)*8)));
-            for (i, tp) in vec.iter().enumerate() {
+            for (i, tp) in vec.iter().enumerate() { 
                 let index = i as i64;
                 let (id, expr) = tp;
                 assert!(!var_to_regoffset.contains_key(id), "Duplicate binding");
@@ -272,6 +275,21 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                 instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, (index+1)*8), Val::Reg(Reg::RAX)));
                 var_to_regoffset.insert(id.to_string(), index+1);
             }
+
+            let mut num_var_from_parent = 0;
+            for k in var_map.keys() {
+                if !var_to_regoffset.contains_key(k) {
+                    instrs.push(Instr::IMov(Val::Reg(Reg::R8),
+                         Val::RegOffset(Reg::RDX, var_map[k]*8)));
+                    instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, (vec.len() as i64 + num_var_from_parent + 1)*8),
+                         Val::Reg(Reg::R8)));
+                    var_to_regoffset.insert(k.to_string(), vec.len() as i64 + num_var_from_parent + 1);
+                    num_var_from_parent += 1;
+                }
+            }
+
+            instrs.push(Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(num_var_from_parent*8)));
+            
             instrs.extend(compile_to_instrs(subexpr, &var_to_regoffset, loop_end, defn_map));
             instrs.push(Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::RBP)));
             instrs.push(Instr::IPop(Val::Reg(Reg::RBP)));
@@ -379,8 +397,9 @@ fn val_to_str(v: &Val) -> String {
         Val::Reg(Reg::RDI) => "rdi".to_string(),
         Val::Imm(n) => n.to_string(),
         Val::RegOffset(Reg::RBP, n) => format!("[rbp - {}]", n),
+        Val::RegOffset(Reg::RDX, n) => format!("[rdx - {}]", n),
         Val::Label(label) => label.clone(),
-        _ => panic!("Only support RBP for regoffset"),
+        _ => panic!("Only support RBP and RDX for regoffset"),
     }
 }
 
@@ -394,6 +413,7 @@ pub fn compile(e: &Expr, defs: &Vec<Defn>) -> String {
     for instr in instrs {
         ret += &instr_to_str(&instr);
     }
+    ret += "\nret";
     for instr in defn_instrs {
         ret += &instr_to_str(&instr);
     }

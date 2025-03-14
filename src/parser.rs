@@ -114,7 +114,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), Sexp::Atom(S(s)), e] if op == "set!" => Expr::Set(id_preprocess(s), Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), ..] if op == "block" => Expr::Block(parse_block(vec)),
-                [Sexp::Atom(S(op)), ..] if op == "fun" => Expr::Call(op.clone(), parse_block(vec)),
+                [Sexp::Atom(S(op)), ..] => Expr::Call(id_preprocess(op), parse_block(vec)),
                 _ => panic!("Expr Invalid: Sexp"),
             }
         },
