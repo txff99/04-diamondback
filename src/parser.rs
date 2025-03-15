@@ -1,12 +1,11 @@
 
-use im::HashMap;
 use regex::Regex;
 use sexp::Atom::*;
 use sexp::*;
 
 
 #[derive(Debug)]
-pub enum Op1 { Add1, Sub1, IsNum, IsBool, IsOverflow}
+pub enum Op1 { Add1, Sub1, IsNum, IsBool, IsOverflow, Print, }
 
 #[derive(Debug)]
 pub enum Op2 { Plus, Minus, Times, Equal, Greater, GreaterEqual, Less, LessEqual, }
@@ -31,7 +30,7 @@ pub enum Expr {
     Break(Box<Expr>),
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
-    Call(String, Vec<Expr>)
+    Call(String, Vec<Expr>),
 }
 
 fn parse_bind(bindings: &Vec<Sexp>) -> Vec<(String, Expr)> {
@@ -100,6 +99,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
             match &vec[..] {
                 [Sexp::Atom(S(op)), e] if op == "add1" => check_numbound(Expr::UnOp(Op1::Add1, Box::new(bind_typecheck(e,"numeric")))),
                 [Sexp::Atom(S(op)), e] if op == "sub1" => check_numbound(Expr::UnOp(Op1::Sub1, Box::new(bind_typecheck(e, "numeric")))),
+                [Sexp::Atom(S(op)), e] if op == "print" => Expr::UnOp(Op1::Print, Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "+" => check_numbound(Expr::BinOp(Op2::Plus, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric")))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "-" => check_numbound(Expr::BinOp(Op2::Minus, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric")))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "*" => Expr::BinOp(Op2::Times, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric"))),
@@ -115,6 +115,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), Sexp::Atom(S(s)), e] if op == "set!" => Expr::Set(id_preprocess(s), Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), ..] if op == "block" => Expr::Block(parse_block(vec)),
                 [Sexp::Atom(S(op)), ..] => Expr::Call(id_preprocess(op), parse_block(vec)),
+                
                 _ => panic!("Expr Invalid: Sexp"),
             }
         },

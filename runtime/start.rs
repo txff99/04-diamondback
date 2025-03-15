@@ -19,6 +19,17 @@ pub extern "C" fn snek_error(errcode: i64) {
     }
     std::process::exit(1);
 }
+#[export_name = "\x01snek_print"]
+pub extern "C" fn snek_print(val: i64) -> i64 {
+    if val == 1 {
+        println!("false");
+    } else if val == 3 {
+        println!("true");
+    } else {
+        println!("{}", val>>1);
+    }
+    val
+}
 
 fn parse_input(input: &str) -> i64 {
     // TODO: parse the input string into internal value representation

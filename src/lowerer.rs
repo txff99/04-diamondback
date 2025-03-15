@@ -18,6 +18,7 @@ enum Reg {
     RCX,
     RDX,
     R8,
+    R9,
     RSP,
     RBP,
     RDI,
@@ -83,11 +84,13 @@ fn compile_defns(defns: &Vec<Defn>, defn_map: &mut HashMap<String, FuncArg>) -> 
             Defn::Func(name, args, expr) => {
                 instrs.push(Instr::ILABEL(Val::Label(defn_map[name].addr.clone())));
                 // build a var map for func args
+                instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
+                instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
                 let mut var_to_regoffset: HashMap<String, i64> = HashMap::new();
                 for (i, id) in args.iter().enumerate() {
                     let index = i as i64;
                     assert!(!var_to_regoffset.contains_key(id), "A function's parameter list has a duplicate name");
-                    var_to_regoffset.insert(id.to_string(), index+1);
+                    var_to_regoffset.insert(id.to_string(), -(args.len() as i64-index+1));
                 }
                 instrs.extend(compile_to_instrs(expr, &var_to_regoffset, "", defn_map));
                 instrs.push(Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::RBP)));
@@ -149,8 +152,15 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                 },
                 Op1::IsOverflow => {
                     let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
-                    // instrs.push(Instr::IJC(Val::Label("overflow_handler".to_string())));
                     instrs.push(Instr::IJO(Val::Label("overflow_handler".to_string())));
+                    instrs
+                },
+                Op1::Print => {
+                    let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
+                    instrs.push(Instr::IPush(Val::Reg(Reg::RDI)));
+                    instrs.push(Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)));
+                    instrs.push(Instr::ICall(Val::Label("snek_print".to_string())));
+                    instrs.push(Instr::IPop(Val::Reg(Reg::RDI)));
                     instrs
                 }
             }
@@ -260,7 +270,7 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
         Expr::Let(vec, subexpr) => {
             let mut var_to_regoffset: HashMap<String, i64> = HashMap::new();
             let mut instrs = Vec::new();
-            /* mark the rbp in another register and copy values to new offset 
+            /* copy the rbp in another register and copy values to new offset 
             add unique ids to the new var map */
             instrs.push(Instr::IMov(Val::Reg(Reg::RDX), Val::Reg(Reg::RBP)));
 
@@ -289,7 +299,6 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             }
 
             instrs.push(Instr::ISub(Val::Reg(Reg::RSP), Val::Imm(num_var_from_parent*8)));
-            
             instrs.extend(compile_to_instrs(subexpr, &var_to_regoffset, loop_end, defn_map));
             instrs.push(Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::RBP)));
             instrs.push(Instr::IPop(Val::Reg(Reg::RBP)));
@@ -345,15 +354,17 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             assert!(args.len()==defn_map[name].args.len(), "There is a call to a function with the wrong number of arguments");
             // assign args to stack and call 
             let mut instrs = Vec::new();
-            instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
-            instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
-            instrs.push(Instr::ISub(Val::Reg(Reg::RSP), Val::Imm((args.len() as i64)*8)));
-            for (i, expr) in args.iter().enumerate() {
-                let index = i as i64;
+            for expr in args.iter() {
                 instrs.extend(compile_to_instrs(expr, var_map, loop_end, defn_map));
-                instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, (index+1)*8), Val::Reg(Reg::RAX)));
+                instrs.push(Instr::IPush(Val::Reg(Reg::RAX)));
             }
             instrs.push(Instr::ICall(Val::Label(defn_map[name].addr.clone())));
+            
+            // cleanup
+            for _ in 0..args.len() {
+                instrs.push(Instr::IPop(Val::Reg(Reg::RCX)));
+            }
+            
             instrs
         }
     }
@@ -393,10 +404,17 @@ fn val_to_str(v: &Val) -> String {
         Val::Reg(Reg::RCX) => "rcx".to_string(),
         Val::Reg(Reg::RDX) => "rdx".to_string(),
         Val::Reg(Reg::R8) => "r8".to_string(),
+        Val::Reg(Reg::R9) => "r9".to_string(),
         Val::Reg(Reg::RBP) => "rbp".to_string(),
         Val::Reg(Reg::RDI) => "rdi".to_string(),
         Val::Imm(n) => n.to_string(),
-        Val::RegOffset(Reg::RBP, n) => format!("[rbp - {}]", n),
+        Val::RegOffset(Reg::RBP, n) => {
+            if *n > 0 {
+                format!("[rbp - {}]", n)
+            } else {
+                format!("[rbp + {}]", -n)
+            }
+        },
         Val::RegOffset(Reg::RDX, n) => format!("[rdx - {}]", n),
         Val::Label(label) => label.clone(),
         _ => panic!("Only support RBP and RDX for regoffset"),

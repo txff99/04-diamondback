@@ -10,7 +10,6 @@ mod lowerer;
 fn sexp_separator(s: &str) -> Vec<&str> {
   let mut head = 0;
   let mut end = 0;
-  
   let mut counter = 0;
   let mut ret = Vec::new();
   let mut contains_pair = false;
@@ -64,20 +63,21 @@ fn main() -> std::io::Result<()> {
         "
 section .text
 extern snek_error
+extern snek_print
 global our_code_starts_here
 our_code_starts_here:
   {}
 invalid_arg_handler:
+    push rdi
     mov rdi, 1       
-    sub rsp, 8       ; add stack alignment to avoid crashes 
     call snek_error   
-    add rsp, 8       
+    pop rdi      
     ret
 overflow_handler:
+    push rdi
     mov rdi, 2
-    sub rsp, 8
     call snek_error
-    add rsp, 8
+    pop rdi
     ret
 ",
         result
