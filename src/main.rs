@@ -69,14 +69,24 @@ our_code_starts_here:
   {}
 invalid_arg_handler:
     push rdi
-    mov rdi, 1       
+    mov rdi, 1    
+    push rbp
+    mov rbp, rsp
+    and rsp, 0xfffffff0   
     call snek_error   
+    mov rsp, rbp
+    pop rbp
     pop rdi      
     ret
 overflow_handler:
     push rdi
     mov rdi, 2
+    push rbp
+    mov rbp, rsp
+    and rsp, 0xfffffff0   
     call snek_error
+    mov rsp, rbp
+    pop rbp
     pop rdi
     ret
 ",

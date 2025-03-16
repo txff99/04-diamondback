@@ -1,0 +1,11 @@
+(
+    let ((a 1) (b 1)) (
+        block 
+        (print a)
+        (let ((c 1))(
+            block
+            (print (+ a c))
+            (print c)
+        )) 
+    )
+)

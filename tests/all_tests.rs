@@ -19,10 +19,26 @@ success_tests! {
         file: "even_odd.snek",
         input: "9",
         expected: "9\nfalse\nfalse",
+    },
+    {
+        name: multibindings,
+        file: "multibindings.snek",
+        expected: "1\n2\n1\n1"
     }
 }
 
-runtime_error_tests! {}
+runtime_error_tests! {
+    {
+        name: invalid_arg,
+        file: "invalid_arg.snek",
+        expected: "an error ocurred: invalid argument",
+    },
+    {
+        name: overflow,
+        file: "overflow.snek",
+        expected: "an error ocurred: overflow",
+    }
+}
 
 static_error_tests! {
     {

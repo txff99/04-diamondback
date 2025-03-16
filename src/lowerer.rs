@@ -33,6 +33,7 @@ enum Instr {
     IPush(Val),
     IPop(Val),
     IAnd(Val, Val),
+    IJZ(Val),
     IJE(Val),
     IJNE(Val),
     IJMP(Val),
@@ -48,6 +49,7 @@ enum Instr {
     IJO(Val),
     IReturn,
     ICall(Val),
+    ITest(Val, Val),
 }
 
 #[derive(Clone)]
@@ -159,7 +161,12 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                     let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RDI)));
                     instrs.push(Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)));
+                    instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
+                    instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
+                    instrs.push(Instr::IAnd(Val::Reg(Reg::RSP), Val::Imm(0xfffffff0)));
                     instrs.push(Instr::ICall(Val::Label("snek_print".to_string())));
+                    instrs.push(Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::RBP)));
+                    instrs.push(Instr::IPop(Val::Reg(Reg::RBP)));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RDI)));
                     instrs
                 }
@@ -380,6 +387,7 @@ fn instr_to_str(i: &Instr) -> String {
         Instr::IMul(src) => format!("\nmul {}", val_to_str(src)),
         Instr::IAnd(dst, src) => format!("\nand {}, {}", val_to_str(dst), val_to_str(src)),
         Instr::ICMP(dst, src) => format!("\ncmp {}, {}", val_to_str(dst), val_to_str(src)),
+        Instr::IJZ(label) => format!("\njz {}", val_to_str(label)),
         Instr::IJE(label) => format!("\nje {}", val_to_str(label)),
         Instr::IJNE(label) => format!("\njne {}", val_to_str(label)),
         Instr::IJMP(label) => format!("\njmp {}", val_to_str(label)),
@@ -394,6 +402,7 @@ fn instr_to_str(i: &Instr) -> String {
         Instr::IJO(dst) => format!("\njo {}", val_to_str(dst)),
         Instr::IReturn => format!("\nret"),
         Instr::ICall(dst) => format!("\ncall {}", val_to_str(dst)),
+        Instr::ITest(dst, src) => format!("\ntest {}, {}", val_to_str(dst), val_to_str(src)),
     }
 }
 
