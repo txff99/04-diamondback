@@ -66,6 +66,7 @@ extern snek_error
 extern snek_print
 global our_code_starts_here
 our_code_starts_here:
+mov r15, rsi
   {}
 invalid_arg_handler:
     push rdi

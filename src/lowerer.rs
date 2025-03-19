@@ -18,7 +18,7 @@ enum Reg {
     RCX,
     RDX,
     R8,
-    R9,
+    R15,
     RSP,
     RBP,
     RDI,
@@ -114,7 +114,7 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             instrs.push(Instr::ISAL(Val::Reg(Reg::RAX), Val::Imm(1)));
             instrs
         },
-        Expr::Boolean(b) => vec![Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(if *b {0b11} else {0b01}))],
+        Expr::Boolean(b) => vec![Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(if *b {0b111} else {0b011}))],
         Expr::Input => {
             let instrs = vec![Instr::IMov(Val::Reg(Reg::RAX), Val::Reg(Reg::RDI))];
             instrs
@@ -135,20 +135,21 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                   instrs.push(Instr::ISub(Val::Reg(Reg::RAX), Val::Imm(0b10)));
                   instrs
                 },
-                /* for typecheck we use the least significant bit for tag: 0 for number, 1 for bool */
+                /* for typecheck we use the least significant bit for tag: 
+                xxx0 for number, xx11 for bool, xx01 for pair */
                 Op1::IsBool => {
                   let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                   instrs.push(Instr::IMov(Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)));
-                  instrs.push(Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(0x1)));
-                  instrs.push(Instr::ICMP(Val::Reg(Reg::RCX), Val::Imm(0x1)));
+                  instrs.push(Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(0b11)));
+                  instrs.push(Instr::ICMP(Val::Reg(Reg::RCX), Val::Imm(0b11)));
                   instrs.push(Instr::IJNE(Val::Label("invalid_arg_handler".to_string())));
                   instrs
                 },
                 Op1::IsNum => {
                   let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                   instrs.push(Instr::IMov(Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)));
-                  instrs.push(Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(0x1)));
-                  instrs.push(Instr::ICMP(Val::Reg(Reg::RCX), Val::Imm(0x1)));
+                  instrs.push(Instr::IAnd(Val::Reg(Reg::RCX), Val::Imm(0b1)));
+                  instrs.push(Instr::ICMP(Val::Reg(Reg::RCX), Val::Imm(0b1)));
                   instrs.push(Instr::IJE(Val::Label("invalid_arg_handler".to_string())));
                   instrs
                 },
@@ -161,12 +162,14 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                     let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                     instrs.push(Instr::IPush(Val::Reg(Reg::RDI)));
                     instrs.push(Instr::IMov(Val::Reg(Reg::RDI), Val::Reg(Reg::RAX)));
+                    /* stack alignment */
                     instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
                     instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::RSP)));
-                    instrs.push(Instr::IAnd(Val::Reg(Reg::RSP), Val::Imm(0xfffffff0)));
+                    instrs.push(Instr::IAnd(Val::Reg(Reg::RSP), Val::Imm(0xfffffff0))); 
                     instrs.push(Instr::ICall(Val::Label("snek_print".to_string())));
                     instrs.push(Instr::IMov(Val::Reg(Reg::RSP), Val::Reg(Reg::RBP)));
                     instrs.push(Instr::IPop(Val::Reg(Reg::RBP)));
+                    
                     instrs.push(Instr::IPop(Val::Reg(Reg::RDI)));
                     instrs
                 }
@@ -219,8 +222,8 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
                     instrs.push(Instr::ISETE(()));
-                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(1)));
-                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)));
+                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(2)));
+                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(0b11)));
 
                     instrs
                 }
@@ -232,8 +235,8 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
                     instrs.push(Instr::ISETL(()));
-                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(1)));
-                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)));
+                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(2)));
+                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(0b11)));
                     instrs
                 },
                 Op2::LessEqual => {
@@ -244,8 +247,8 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
                     instrs.push(Instr::ISETLE(()));
-                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(1)));
-                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)));
+                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(2)));
+                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(0b11)));
                     instrs
                 },
                 Op2::Greater => {
@@ -256,8 +259,8 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
                     instrs.push(Instr::ISETG(()));
-                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(1)));
-                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)));
+                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(2)));
+                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(0b11)));
                     instrs
                 },
                 Op2::GreaterEqual => {
@@ -268,8 +271,8 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                     
                     instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
                     instrs.push(Instr::ISETGE(()));
-                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(1)));
-                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(1)));
+                    instrs.push(Instr::ISAL(Val::Reg(Reg::RAX),Val::Imm(2)));
+                    instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(0b11)));
                     instrs
                 }
             }
@@ -314,7 +317,7 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
         Expr::If(e1, e2, e3) => {
             let mut instrs = Vec::new();
             instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
-            instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Imm(0b11)));
+            instrs.push(Instr::ICMP(Val::Reg(Reg::RAX), Val::Imm(0b111)));
             let else_label = generate_label("else");
             let end_label = generate_label("end");
             instrs.push(Instr::IJNE(Val::Label(else_label.clone())));
@@ -341,16 +344,15 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             let mut instrs = compile_to_instrs(e, var_map, loop_end, defn_map);
             instrs.push(Instr::IJMP(Val::Label(loop_end.to_string())));
             instrs
-        }
+        },
         Expr::Block(exprs) => {
             let mut instrs = Vec::new();
             for e in exprs {
                 instrs.extend(compile_to_instrs(e, var_map, loop_end, defn_map));
             }
             instrs
-        }
+        },
         Expr::Set(id, e) => {
-            /* todo combine this with Expr::ID instead of String */
             assert!(var_map.contains_key(id), "Unbound variable identifier: {}", id);
             let mut instrs = compile_to_instrs(e, var_map, loop_end, defn_map);
             instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, var_map[id]*8), Val::Reg(Reg::RAX)));
@@ -413,7 +415,7 @@ fn val_to_str(v: &Val) -> String {
         Val::Reg(Reg::RCX) => "rcx".to_string(),
         Val::Reg(Reg::RDX) => "rdx".to_string(),
         Val::Reg(Reg::R8) => "r8".to_string(),
-        Val::Reg(Reg::R9) => "r9".to_string(),
+        Val::Reg(Reg::R15) => "r15".to_string(),
         Val::Reg(Reg::RBP) => "rbp".to_string(),
         Val::Reg(Reg::RDI) => "rdi".to_string(),
         Val::Imm(n) => n.to_string(),
