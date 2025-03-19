@@ -20,22 +20,30 @@ pub extern "C" fn snek_error(errcode: i64) {
     std::process::exit(1);
 }
 #[export_name = "\x01snek_print"]
-pub extern "C" fn snek_print(val: i64) -> i64 {
+pub extern "C" fn snek_print(val: i64, is_recursive: bool) -> i64 {
     if val == 0b011 {
-        println!("false");
+        print!("false");
     } else if val == 0b111 {
-        println!("true");
+        print!("true");
     } else if val % 2 == 0 {
-        println!("{}", val>>1);
-    } else if val % 3 == 1 {
+        print!("{}", val>>1);
+    } else if val & 0b01 == 0b01 {
         /* pair values */
         if val == 1 {
-            println!("nil");
+            print!(" nil");
             return val;
         }
         let addr: *const i64 = (val-1) as *const i64;
-        snek_print( unsafe {*addr});
-        snek_print( unsafe {*addr.offset(1)});
+        print!("(pair ");
+        snek_print( unsafe {*addr} , true);
+        print!(" ");
+        snek_print( unsafe {*addr.offset(1)}, true);
+        print!(")");
+    } else {
+        print!("val: {}, snek print not implemented!", val);
+    }
+    if !is_recursive {
+        print!("\n");
     }
     val
 }
@@ -64,5 +72,5 @@ fn main() {
     let buffer: *mut i64 = memory.as_mut_ptr();
 
     let i: i64 = unsafe { our_code_starts_here(input, buffer) };
-    snek_print(i);
+    snek_print(i, false);
 }

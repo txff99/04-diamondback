@@ -21,6 +21,7 @@ pub enum Expr {
     Number(i64),
     Boolean(bool),
     Id(String),
+    Nil,
     Let(Vec<(String, Expr)>, Box<Expr>),
     UnOp(Op1, Box<Expr>),
     BinOp(Op2, Box<Expr>, Box<Expr>),
@@ -31,6 +32,7 @@ pub enum Expr {
     Set(String, Box<Expr>),
     Block(Vec<Expr>),
     Call(String, Vec<Expr>),
+    Pair(Box<Expr>, Box<Expr>),
 }
 
 fn parse_bind(bindings: &Vec<Sexp>) -> Vec<(String, Expr)> {
@@ -89,6 +91,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                       "true" => Expr::Boolean(true),
                       "false" => Expr::Boolean(false),
                       "input" => Expr::Input,
+                      "nil" => Expr::Nil,
                       _ => Expr::Id(id_preprocess(e.as_str()))
                     }
                 },
@@ -100,6 +103,8 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), e] if op == "add1" => check_numbound(Expr::UnOp(Op1::Add1, Box::new(bind_typecheck(e,"numeric")))),
                 [Sexp::Atom(S(op)), e] if op == "sub1" => check_numbound(Expr::UnOp(Op1::Sub1, Box::new(bind_typecheck(e, "numeric")))),
                 [Sexp::Atom(S(op)), e] if op == "print" => Expr::UnOp(Op1::Print, Box::new(parse_expr(e))),
+                [Sexp::Atom(S(op)), e] if op == "loop" => Expr::Loop(Box::new(parse_expr(e))),
+                [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "+" => check_numbound(Expr::BinOp(Op2::Plus, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric")))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "-" => check_numbound(Expr::BinOp(Op2::Minus, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric")))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "*" => Expr::BinOp(Op2::Times, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric"))),
@@ -108,14 +113,12 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), e1, e2] if op == ">" => Expr::BinOp(Op2::Greater, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric"))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "<=" => Expr::BinOp(Op2::LessEqual, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric"))),
                 [Sexp::Atom(S(op)), e1, e2] if op == ">=" => Expr::BinOp(Op2::GreaterEqual, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric"))),
+                [Sexp::Atom(S(op)), e1, e2] if op == "pair" => Expr::Pair(Box::new(parse_expr(e1)), Box::new(parse_expr(e2))),
                 [Sexp::Atom(S(op)), Sexp::List(e1), e2] if op == "let" =>  Expr::Let(parse_bind(e1), Box::new(parse_expr(e2))),
                 [Sexp::Atom(S(op)), e1, e2, e3] if op == "if" => Expr::If(Box::new(bind_typecheck(e1,"boolean")), Box::new(parse_expr(e2)), Box::new(parse_expr(e3))),
-                [Sexp::Atom(S(op)), e] if op == "loop" => Expr::Loop(Box::new(parse_expr(e))),
-                [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), Sexp::Atom(S(s)), e] if op == "set!" => Expr::Set(id_preprocess(s), Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), ..] if op == "block" => Expr::Block(parse_block(vec)),
                 [Sexp::Atom(S(op)), ..] => Expr::Call(id_preprocess(op), parse_block(vec)),
-                
                 _ => panic!("Expr Invalid: Sexp"),
             }
         },

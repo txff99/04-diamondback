@@ -119,6 +119,7 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             let instrs = vec![Instr::IMov(Val::Reg(Reg::RAX), Val::Reg(Reg::RDI))];
             instrs
         },
+        Expr::Nil => vec![Instr::IMov(Val::Reg(Reg::RAX), Val::Imm(0b01))],
         Expr::Id(id) => {
             assert!(var_map.contains_key(id), "{}", format!("Unbound variable identifier {}", id));
             vec![Instr::IMov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, var_map[id]*8))]
@@ -375,7 +376,21 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             }
             
             instrs
-        }
+        },
+        Expr::Pair(e1, e2) => {
+            let mut instrs = Vec::new();
+            instrs.push(Instr::IPush(Val::Reg(Reg::RBP)));
+            instrs.push(Instr::IMov(Val::Reg(Reg::RBP), Val::Reg(Reg::R15)));
+            instrs.push(Instr::IAdd(Val::Reg(Reg::R15), Val::Imm(8*2)));
+            instrs.extend(compile_to_instrs(e1, var_map, loop_end, defn_map));
+            instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, 0), Val::Reg(Reg::RAX)));
+            instrs.extend(compile_to_instrs(e2, var_map, loop_end, defn_map));
+            instrs.push(Instr::IMov(Val::RegOffset(Reg::RBP, -8), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::IMov(Val::Reg(Reg::RAX), Val::Reg(Reg::RBP)));
+            instrs.push(Instr::IAdd(Val::Reg(Reg::RAX), Val::Imm(0b01)));
+            instrs.push(Instr::IPop(Val::Reg(Reg::RBP)));
+            instrs
+        },
     }
 }
 
