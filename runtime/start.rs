@@ -1,5 +1,9 @@
 use std::env;
 
+static mut HEAP_SIZE: i64 = 10000;
+static mut HEAP_START: *mut i64 = std::ptr::null_mut();
+static mut HEAP_END: *mut i64 = std::ptr::null_mut();
+
 #[link(name = "our_code")]
 extern "C" {
     // The \x01 here is an undocumented feature of LLVM that ensures
@@ -28,16 +32,18 @@ pub extern "C" fn snek_print(val: i64, is_recursive: bool) -> i64 {
     } else if val % 2 == 0 {
         print!("{}", val>>1);
     } else if val & 0b01 == 0b01 {
-        /* pair values */
+        /* vec repr only */
         if val == 1 {
             print!(" nil");
             return val;
         }
         let addr: *const i64 = (val-1) as *const i64;
-        print!("(pair ");
-        snek_print( unsafe {*addr} , true);
-        print!(" ");
-        snek_print( unsafe {*addr.offset(1)}, true);
+        print!("(vec");
+        let n_elem = unsafe {*addr.offset(1)>>1};
+        for i in 0..n_elem {
+            print!(" ");
+            snek_print( unsafe {*addr.offset(i as isize+2)}, true);
+        }
         print!(")");
     } else {
         print!("val: {}, snek print not implemented!", val);
@@ -63,13 +69,24 @@ fn parse_input(input: &str) -> i64 {
     }
 }
 
+pub extern "C" fn check_heap_oob(heap_ptr: *mut i64) {
+    if heap_ptr < unsafe{HEAP_START} || heap_ptr > unsafe{HEAP_END} {
+        eprintln!("heap out of bound");
+        std::process::exit(1);
+    }
+}
+
 fn main() {
     let args: Vec<String> = env::args().collect();
     let input = if args.len() == 2 { &args[1] } else { "false" };
     let input = parse_input(&input);
 
-    let mut memory:Vec<i64> = Vec::with_capacity(100000);
+    let mut memory:Vec<i64> = Vec::with_capacity(unsafe{HEAP_SIZE} as usize);
     let buffer: *mut i64 = memory.as_mut_ptr();
+    unsafe{
+        HEAP_START = buffer;
+        HEAP_END = buffer.wrapping_add(HEAP_SIZE as usize);
+    }
 
     let i: i64 = unsafe { our_code_starts_here(input, buffer) };
     snek_print(i, false);
