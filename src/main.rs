@@ -91,6 +91,17 @@ overflow_handler:
     pop rbp
     pop rdi
     ret
+oob_handler:
+    push rdi
+    mov rdi, 3
+    push rbp
+    mov rbp, rsp
+    and rsp, 0xfffffff0   
+    call snek_error
+    mov rsp, rbp
+    pop rbp
+    pop rdi
+    ret
 ",
         result
     );

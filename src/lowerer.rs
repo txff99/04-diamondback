@@ -1,5 +1,6 @@
 use core::num;
 use std::char::REPLACEMENT_CHARACTER;
+use std::f32::RADIX;
 
 use im::HashMap;
 use rand::{thread_rng, Rng};
@@ -38,6 +39,7 @@ enum Instr {
     And(Val, Val),
     JZ(Val),
     JE(Val),
+    JS(Val),
     JNE(Val),
     JMP(Val),
     CMP(Val, Val),
@@ -46,6 +48,10 @@ enum Instr {
     SETLE(()),
     SETG(()),
     SETGE(()),
+    JG(Val),
+    JGE(Val),
+    JL(Val),
+    JLE(Val),
     SAL(Val, Val),
     SAR(Val, Val),
     LABEL(Val),
@@ -167,7 +173,17 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
                   instrs.push(Instr::CMP(Val::Reg(Reg::RCX), Val::Imm(0b1)));
                   instrs.push(Instr::JNE(Val::Label("invalid_arg_handler".to_string())));
                   instrs
-                }
+                },
+                Op1::IsNonNilVec => {
+                    let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
+                  instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::Reg(Reg::RAX)));
+                  instrs.push(Instr::And(Val::Reg(Reg::RCX), Val::Imm(0b11)));
+                  instrs.push(Instr::CMP(Val::Reg(Reg::RCX), Val::Imm(0b1)));
+                  instrs.push(Instr::JNE(Val::Label("invalid_arg_handler".to_string())));
+                  instrs.push(Instr::CMP(Val::Reg(Reg::RAX), Val::Imm(0b1)));
+                  instrs.push(Instr::JE(Val::Label("invalid_arg_handler".to_string())));
+                  instrs
+                },
                 Op1::IsOverflow => {
                     let mut instrs = compile_to_instrs(subexpr, var_map, loop_end, defn_map);
                     instrs.push(Instr::JO(Val::Label("overflow_handler".to_string())));
@@ -411,7 +427,7 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             instrs.push(Instr::Mov(Val::Reg(Reg::RBP), Val::Reg(Reg::R15)));
             instrs.push(Instr::IAdd(Val::Reg(Reg::R15), Val::Imm(8*(num_elem + 2))));
             instrs.push(Instr::Mov(Val::RegOffset(Reg::RBP, 0), Val::Imm(GC_LBL)));
-            instrs.push(Instr::Mov(Val::RegOffset(Reg::RBP, -8), Val::Imm(num_elem)));
+            instrs.push(Instr::Mov(Val::RegOffset(Reg::RBP, -8), Val::Imm(num_elem<<1)));
             for (i, expr) in exprs.iter().enumerate() {
                 instrs.extend(compile_to_instrs(expr, var_map, loop_end, defn_map));
                 instrs.push(Instr::Mov(Val::RegOffset(Reg::RBP, -8 * (i as i64 + 2)), Val::Reg(Reg::RAX)));
@@ -423,6 +439,10 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
         },
         Expr::MakeVec(e1, e2) => {
             let mut instrs = compile_to_instrs(e1, var_map, loop_end, defn_map);
+            // count has to be non negative
+            instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::JS(Val::Label("invalid_arg_handler".to_string())));
+
             instrs.push(Instr::Push(Val::Reg(Reg::RBP)));
             instrs.push(Instr::Mov(Val::Reg(Reg::RBP), Val::Reg(Reg::R15)));
             
@@ -463,7 +483,13 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             instrs.push(Instr::ISub(Val::Reg(Reg::RBP), Val::Imm(1)));
             
             instrs.extend(compile_to_instrs(e2, var_map, loop_end, defn_map));
-            /* todo: bound check */
+            /* bound check idx >=0 && idx < num_elem */
+            instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBP, -8)));
+            instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::JS(Val::Label("invalid_arg_handler".to_string())));
+            instrs.push(Instr::CMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
+            instrs.push(Instr::JGE(Val::Label("oob_handler".to_string())));
+
             instrs.push(Instr::SAR(Val::Reg(Reg::RAX), Val::Imm(1)));
             instrs.push(Instr::LEA(Val::Reg(Reg::RDX), Val::RegOffset(Reg::RAX, -2)));
             instrs.push(Instr::IMul(Val::Reg(Reg::RDX), Val::Imm(8)));
@@ -477,9 +503,16 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             instrs.push(Instr::Push(Val::Reg(Reg::RBP)));
             instrs.push(Instr::Mov(Val::Reg(Reg::RBP), Val::Reg(Reg::RAX)));
             instrs.push(Instr::ISub(Val::Reg(Reg::RBP), Val::Imm(1)));
+            instrs.push(Instr::Push(Val::Reg(Reg::RBP)));
             
             instrs.extend(compile_to_instrs(e2, var_map, loop_end, defn_map));
-            /* todo: bound check */
+            /* bound check */
+            instrs.push(Instr::Mov(Val::Reg(Reg::RCX), Val::RegOffset(Reg::RBP, -8)));
+            instrs.push(Instr::Test(Val::Reg(Reg::RAX), Val::Reg(Reg::RAX)));
+            instrs.push(Instr::JS(Val::Label("invalid_arg_handler".to_string())));
+            instrs.push(Instr::CMP(Val::Reg(Reg::RAX), Val::Reg(Reg::RCX)));
+            instrs.push(Instr::JGE(Val::Label("oob_handler".to_string())));
+
             instrs.push(Instr::SAR(Val::Reg(Reg::RAX), Val::Imm(1)));
             instrs.push(Instr::LEA(Val::Reg(Reg::RDX), Val::RegOffset(Reg::RAX, -2)));
             instrs.push(Instr::IMul(Val::Reg(Reg::RDX), Val::Imm(8)));
@@ -489,6 +522,9 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
 
             instrs.push(Instr::Mov(Val::RegOffset(Reg::RBP, 0), Val::Reg(Reg::RAX)));
             instrs.push(Instr::Pop(Val::Reg(Reg::RBP)));
+            instrs.push(Instr::IAdd(Val::Reg(Reg::RBP), Val::Imm(1)));
+            instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::Reg(Reg::RBP)));
+            instrs.push(Instr::Pop(Val::Reg(Reg::RBP)));
             instrs
         }, 
         Expr::VecLen(e) => {
@@ -497,6 +533,7 @@ fn compile_to_instrs(e: &Expr, var_map: &HashMap<String, i64>, loop_end: &str, d
             instrs.push(Instr::Mov(Val::Reg(Reg::RBP), Val::Reg(Reg::RAX)));
             instrs.push(Instr::ISub(Val::Reg(Reg::RBP), Val::Imm(1)));
             instrs.push(Instr::Mov(Val::Reg(Reg::RAX), Val::RegOffset(Reg::RBP, -8)));
+            instrs.push(Instr::Pop(Val::Reg(Reg::RBP)));
             instrs
         }
     }
@@ -525,10 +562,15 @@ fn instr_to_str(i: &Instr) -> String {
         Instr::SETG(_) => format!("\nsetg al\nmovzx rax, al"),
         Instr::SETGE(_) => format!("\nsetge al\nmovzx rax, al"),
         Instr::JO(dst) => format!("\njo {}", val_to_str(dst)),
+        Instr::JS(dst) => format!("\njs {}", val_to_str(dst)),
         Instr::Return => format!("\nret"),
         Instr::Call(dst) => format!("\ncall {}", val_to_str(dst)),
         Instr::Test(dst, src) => format!("\ntest {}, {}", val_to_str(dst), val_to_str(src)),
         Instr::LEA(dst, src) => format!("\nlea {}, {}", val_to_str(dst), val_to_str(src)),
+        Instr::JG(label) => format!("\njg {}", val_to_str(label)),
+        Instr::JGE(label) => format!("\njge {}", val_to_str(label)),
+        Instr::JL(label) => format!("\njl {}", val_to_str(label)),
+        Instr::JLE(label) => format!("\njle {}", val_to_str(label)),
     }
 }
 

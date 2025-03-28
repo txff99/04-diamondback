@@ -19,6 +19,7 @@ pub extern "C" fn snek_error(errcode: i64) {
     match errcode {
         1 => eprintln!("an error ocurred: invalid argument"),
         2 => eprintln!("an error ocurred: overflow"),
+        3 => eprintln!("an error occured: index out of bound"),
         _ => eprintln!("an error ocurred: errno {}", errcode),
     }
     std::process::exit(1);
@@ -38,13 +39,14 @@ pub extern "C" fn snek_print(val: i64, is_recursive: bool) -> i64 {
             return val;
         }
         let addr: *const i64 = (val-1) as *const i64;
-        print!("(vec");
+        print!("[");
         let n_elem = unsafe {*addr.offset(1)>>1};
-        for i in 0..n_elem {
+        snek_print(unsafe {*addr.offset(2)}, true );
+        for i in 1..n_elem {
             print!(" ");
             snek_print( unsafe {*addr.offset(i as isize+2)}, true);
         }
-        print!(")");
+        print!("]");
     } else {
         print!("val: {}, snek print not implemented!", val);
     }

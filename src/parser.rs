@@ -5,7 +5,7 @@ use sexp::*;
 
 
 #[derive(Debug)]
-pub enum Op1 { Add1, Sub1, IsNum, IsBool, IsVec, IsOverflow, Print, }
+pub enum Op1 { Add1, Sub1, IsNum, IsBool, IsVec, IsNonNilVec, IsOverflow, Print, }
 
 #[derive(Debug)]
 pub enum Op2 { Plus, Minus, Times, Equal, Greater, GreaterEqual, Less, LessEqual, }
@@ -79,6 +79,7 @@ fn bind_typecheck(e: &Sexp, t: &str) -> Expr {
     "numeric" => Expr::UnOp(Op1::IsNum, Box::new(parse_expr(e))),
     "boolean" => Expr::UnOp(Op1::IsBool, Box::new(parse_expr(e))),
     "vector" => Expr::UnOp(Op1::IsVec, Box::new(parse_expr(e))),
+    "nonnilvector" => Expr::UnOp(Op1::IsNonNilVec, Box::new(parse_expr(e))),
     _ => panic!("type check only support numeric and boolean"),
   } 
 }
@@ -111,7 +112,7 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), e] if op == "print" => Expr::UnOp(Op1::Print, Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e] if op == "loop" => Expr::Loop(Box::new(parse_expr(e))),
                 [Sexp::Atom(S(op)), e] if op == "break" => Expr::Break(Box::new(parse_expr(e))),
-                [Sexp::Atom(S(op)), e] if op == "vec-len" => Expr::VecLen(Box::new(bind_typecheck(e, "vector"))),
+                [Sexp::Atom(S(op)), e] if op == "vec-len" => Expr::VecLen(Box::new(bind_typecheck(e, "nonnilvector"))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "+" => check_numbound(Expr::BinOp(Op2::Plus, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric")))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "-" => check_numbound(Expr::BinOp(Op2::Minus, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric")))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "*" => Expr::BinOp(Op2::Times, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric"))),
@@ -122,8 +123,8 @@ pub fn parse_expr(s: &Sexp) -> Expr {
                 [Sexp::Atom(S(op)), e1, e2] if op == ">=" => Expr::BinOp(Op2::GreaterEqual, Box::new(bind_typecheck(e1,"numeric")), Box::new(bind_typecheck(e2, "numeric"))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "pair" => Expr::Pair(Box::new(parse_expr(e1)), Box::new(parse_expr(e2))),
                 [Sexp::Atom(S(op)), e1, e2] if op == "make-vec" => Expr::MakeVec(Box::new(bind_typecheck(e1,"numeric")), Box::new(parse_expr(e2))),
-                [Sexp::Atom(S(op)), e1, e2] if op == "vec-get" => Expr::VecGet(Box::new(bind_typecheck(e1, "vector")), Box::new(bind_typecheck(e2, "numeric"))),
-                [Sexp::Atom(S(op)), e1, e2, e3] if op == "vec-set!" => Expr::VecSet(Box::new(bind_typecheck(e1, "vector")), Box::new(bind_typecheck(e2, "numeric")), Box::new(parse_expr(e3))),
+                [Sexp::Atom(S(op)), e1, e2] if op == "vec-get" => Expr::VecGet(Box::new(bind_typecheck(e1, "nonnilvector")), Box::new(bind_typecheck(e2, "numeric"))),
+                [Sexp::Atom(S(op)), e1, e2, e3] if op == "vec-set!" => Expr::VecSet(Box::new(bind_typecheck(e1, "nonnilvector")), Box::new(bind_typecheck(e2, "numeric")), Box::new(parse_expr(e3))),
                 [Sexp::Atom(S(op)), e1, e2, e3] if op == "if" => Expr::If(Box::new(bind_typecheck(e1,"boolean")), Box::new(parse_expr(e2)), Box::new(parse_expr(e3))),
                 [Sexp::Atom(S(op)), Sexp::List(e1), e2] if op == "let" =>  Expr::Let(parse_bind(e1), Box::new(parse_expr(e2))),
                 [Sexp::Atom(S(op)), Sexp::Atom(S(s)), e] if op == "set!" => Expr::Set(id_preprocess(s), Box::new(parse_expr(e))),
