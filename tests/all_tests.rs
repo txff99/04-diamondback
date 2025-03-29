@@ -51,6 +51,26 @@ success_tests! {
         name: vec_set,
         file: "vec_set.snek",
         expected: "[0 1 3 3]\n",
+    },
+    {
+        name: equal2,
+        file: "equal2.snek",
+        expected: "false\n",
+    },
+    {
+        name: equal3,
+        file: "equal3.snek",
+        expected: "true\n",
+    },
+    {
+        name: equal4,
+        file: "equal4.snek",
+        expected: "false\n",
+    },
+    {
+        name: vec_comprehensive,
+        file: "vec_comprehensive.snek",
+        expected: "1\n2\n3\n4\n5\n5\n4\n3\n2\n1\nnil",
     }
 }
 
@@ -79,7 +99,12 @@ runtime_error_tests! {
         name: vec_get_error2,
         file: "vec_get_error2.snek",
         expected: "an error occured: index out of bound",
-    }
+    },
+    {
+        name: equal1,
+        file: "equal1.snek",
+        expected: "an error ocurred: invalid argument",
+    },
 }
 
 static_error_tests! {

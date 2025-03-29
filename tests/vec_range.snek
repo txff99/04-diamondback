@@ -1,0 +1,4 @@
+(fun (range n m)
+  (if (= n m) (vec n nil) (vec n (range (add1 n) m))))
+
+(range 1 2)

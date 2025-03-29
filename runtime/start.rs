@@ -35,7 +35,7 @@ pub extern "C" fn snek_print(val: i64, is_recursive: bool) -> i64 {
     } else if val & 0b01 == 0b01 {
         /* vec repr only */
         if val == 1 {
-            print!(" nil");
+            print!("nil");
             return val;
         }
         let addr: *const i64 = (val-1) as *const i64;
